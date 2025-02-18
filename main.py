@@ -12,7 +12,7 @@ from medmnist import *
 from sklearn.metrics import roc_auc_score
 
 
-#  1. 设置随机种子
+#  1. Set random seed
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -20,17 +20,17 @@ def set_seed(seed=42):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True  # 加速卷积
+    torch.backends.cudnn.benchmark = True  # Accelerate convolutions
 
 
 set_seed(42)
 
-#  2. 设备
+#  2. Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#  3. 数据预处理
+#  3. Data preprocessing
 transform = transforms.Compose([
-    transforms.Resize((32, 32)),  # 将图像大小调整为32x32
+    transforms.Resize((32, 32)),  # Resize images to 32x32
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
@@ -38,13 +38,13 @@ transform = transforms.Compose([
 ])
 
 
-#  4. MedMNIST 数据导入
-trainset = PathMNIST(root='./data', split='train', transform=transform, download=True, )
+#  4. MedMNIST data loading
+trainset = PathMNIST(root='./data', split='train', transform=transform, download=True)
 testset = PathMNIST(root='./data', split='test', transform=transform, download=True)
 train_loader = DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2, pin_memory=True)
 test_loader = DataLoader(testset, batch_size=128, shuffle=False, num_workers=2, pin_memory=True)
 
-# 获取类别数和通道数
+# Get number of classes and channels
 num_classes = 14
 n_channels = 1
 
@@ -74,7 +74,7 @@ class ViTLiteBlock(nn.Module):
         b, c, h, w = x.shape
         x = x.view(b, c, -1).permute(2, 0, 1)  # (N, B, C)
         x = self.transformer(x)
-        x = x.permute(1, 2, 0).view(b, c, h, w)  # 还原
+        x = x.permute(1, 2, 0).view(b, c, h, w)  # Restore original shape
 
         return x + res
 
@@ -124,7 +124,7 @@ class ViTLite(nn.Module):
         return x
 
 
-#  7. 计算 FLOPs & Params
+#  7. Compute FLOPs & Params
 def compute_model_metrics(model, n_channels=n_channels):
     inputs = torch.randn(1, n_channels, 32, 32).to(device)
     flops, params = thop.profile(model, inputs=(inputs,), verbose=False)
@@ -132,11 +132,11 @@ def compute_model_metrics(model, n_channels=n_channels):
     return flops, params
 
 
-#  8. 训练 & 评估
+#  8. Training & Evaluation
 def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, criterion, epochs=200):
     best_test_acc1, best_test_acc5 = 0.0, 0.0
-    train_losses = []  # 用于记录每个 epoch 的训练损失
-    test_losses = []  # 用于记录每个 epoch 的测试损失
+    train_losses = []  # List to record training loss for each epoch
+    test_losses = []  # List to record test loss for each epoch
     all_labels = []
     all_preds = []
 
@@ -146,7 +146,7 @@ def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, c
         for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
             inputs, labels = inputs.to(device), labels.to(device)
 
-            # 确保 labels 是 1D 张量
+            # Ensure labels are 1D tensor
             labels = labels.squeeze()
 
             optimizer.zero_grad()
@@ -162,17 +162,17 @@ def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, c
         train_losses.append(epoch_loss / len(train_loader))
         scheduler.step()
 
-        #  评估
+        #  Evaluation
         model.eval()
         correct_top1, correct_top5, total = 0, 0, 0
         epoch_labels = []
         epoch_preds = []
-        epoch_test_loss = 0.0  # 用于计算每个 epoch 的测试损失
+        epoch_test_loss = 0.0  # To calculate test loss for each epoch
         with torch.no_grad():
             for inputs, labels in test_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                # 确保 labels 是 1D 张量
+                # Ensure labels are 1D tensor
                 labels = labels.squeeze()
 
                 outputs = model(inputs)
@@ -184,7 +184,7 @@ def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, c
                 correct_top5 += (predicted == labels.view(-1, 1)).sum().item()
                 total += labels.size(0)
 
-                # 收集标签和预测，用于 ROC 计算
+                # Collect labels and predictions for ROC calculation
                 epoch_labels.append(labels.cpu().numpy())
                 epoch_preds.append(F.softmax(outputs, dim=1).cpu().numpy())
 
@@ -193,19 +193,19 @@ def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, c
         best_test_acc1 = max(best_test_acc1, test_acc1)
         best_test_acc5 = max(best_test_acc5, test_acc5)
 
-        test_losses.append(epoch_test_loss / len(test_loader))  # 记录每个 epoch 的测试损失
+        test_losses.append(epoch_test_loss / len(test_loader))  # Record test loss for each epoch
 
         all_labels.extend(np.concatenate(epoch_labels, axis=0))
         all_preds.extend(np.concatenate(epoch_preds, axis=0))
 
-    # 只取预测的正类（类别1）的概率
+    # Only take the probability of the positive class (class 1)
     # binary_preds = np.array(all_preds)[:, 1]
-    # 计算 AUC
+    # Compute AUC
     auc_score = roc_auc_score(np.array(all_labels), np.array(all_preds), multi_class='ovr', average='macro')
     # auc_score = roc_auc_score(np.array(all_labels), binary_preds)
     print(f'AUC Score (Macro-average): {auc_score:.4f}')
 
-    # 绘制损失曲线
+    # Plot loss curve
     plt.figure(figsize=(10, 6))
     plt.plot(range(epochs), train_losses, label='Train Loss', color='blue')
     # plt.plot(range(epochs), test_losses, label='Test Loss', color='red')
@@ -219,7 +219,7 @@ def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, c
     print(f"\n Best Test Top-1: {best_test_acc1:.2f}%, Best Test Top-5: {best_test_acc5:.2f}%")
 
 
-#  9. 运行
+#  9. Run the model
 if __name__ == '__main__':
     model = ViTLite(num_classes=num_classes, n_channels=n_channels).to(device)
     compute_model_metrics(model)
