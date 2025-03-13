@@ -201,9 +201,9 @@ def train_and_evaluate(model, train_loader, test_loader, optimizer, scheduler, c
     # Only take the probability of the positive class (class 1)
     # binary_preds = np.array(all_preds)[:, 1]
     # Compute AUC
-    auc_score = roc_auc_score(np.array(all_labels), np.array(all_preds), multi_class='ovr', average='macro')
+    #auc_score = roc_auc_score(np.array(all_labels), np.array(all_preds), multi_class='ovr', average='macro')
     # auc_score = roc_auc_score(np.array(all_labels), binary_preds)
-    print(f'AUC Score (Macro-average): {auc_score:.4f}')
+    #print(f'AUC Score (Macro-average): {auc_score:.4f}')
 
     # Plot loss curve
     plt.figure(figsize=(10, 6))
